@@ -1,2 +1,207 @@
 # Drone-Delivery-System-
 programming for problem solving by c language university project 
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Constants for Drone Specifications
+#define MAX_PACKAGES 100
+#define DRONE_SPEED_KMH 40.0       // Average drone speed in km/h
+#define FUEL_RATE_PER_KM 2.5       // Battery/Fuel consumption (% per km)
+#define WEIGHT_PENALTY_FACTOR 0.15 // Extra fuel % per kg per km
+
+// Structure to represent a Package (Syllabus: Structures)
+typedef struct {
+    int id;
+    float weight;
+    int priority;      // 1 = High (Urgent), 2 = Medium, 3 = Low
+    int delivered;     // 0 = Pending, 1 = Delivered
+} Package;
+
+// Function Prototypes (Syllabus: Modular Functions & Pointers)
+double calculateDistance(float x1, float y1, float x2, float y2);
+void inputPackages(Package *pkgs, float coords[][2], int n, float maxDroneCapacity);
+int findNextPackage(Package *pkgs, float coords[][2], int n, float currentX, float currentY, float remainingCapacity);
+void simulateDelivery(Package *pkgs, float coords[][2], int n, float maxCapacity);
+
+int main() {
+    int n;
+    float maxCapacity;
+
+    printf("====================================================\n");
+    printf("       DRONE DELIVERY PATH PLANNER SYSTEM           \n");
+    printf("====================================================\n");
+
+    printf("Enter maximum payload capacity of the drone (in kg): ");
+    if (scanf("%f", &maxCapacity) != 1 || maxCapacity <= 0) {
+        printf("Invalid capacity! Exiting...\n");
+        return 1;
+    }
+
+    printf("Enter the number of packages to deliver (1 - %d): ", MAX_PACKAGES);
+    if (scanf("%d", &n) != 1 || n <= 0 || n > MAX_PACKAGES) {
+        printf("Invalid number of packages! Exiting...\n");
+        return 1;
+    }
+
+    // Dynamic Memory Allocation using Pointers (CO4: Pointers for dynamic storage)
+    Package *packages = (Package *)malloc(n * sizeof(Package));
+    if (packages == NULL) {
+        printf("Memory allocation failed!\n");
+        return 1;
+    }
+
+    // 2D Array to store (X, Y) coordinates of each package (CO3: 2D Arrays)
+    // coords[i][0] = X coordinate, coords[i][1] = Y coordinate
+    float coordinates[MAX_PACKAGES][2];
+
+    // Step 1: Input Package Details
+    inputPackages(packages, coordinates, n, maxCapacity);
+
+    // Step 2: Run Delivery Route Simulation & Generate Report
+    simulateDelivery(packages, coordinates, n, maxCapacity);
+
+    // Free dynamically allocated memory
+    free(packages);
+
+    return 0;
+}
+
+// Function to calculate Euclidean distance between two points (CO3)
+double calculateDistance(float x1, float y1, float x2, float y2) {
+    return sqrt(pow(x2 - x1, 2) + pow(y2 - y1, 2));
+}
+
+// Function to input package data using pointers and 2D arrays
+void inputPackages(Package *pkgs, float coords[][2], int n, float maxDroneCapacity) {
+    printf("\n--- Enter Package Details ---\n");
+    for (int i = 0; i < n; i++) {
+        (pkgs + i)->id = i + 1;
+        (pkgs + i)->delivered = 0;
+
+        printf("\nPackage #%d:\n", i + 1);
+        printf("  Coordinates (X Y in km, e.g., 4.5 3.2): ");
+        scanf("%f %f", &coords[i][0], &coords[i][1]);
+
+        do {
+            printf("  Weight (in kg, max %.2f kg): ", maxDroneCapacity);
+            scanf("%f", &(pkgs + i)->weight);
+            if ((pkgs + i)->weight <= 0 || (pkgs + i)->weight > maxDroneCapacity) {
+                printf("  [Error] Weight must be between 0.1 and %.2f kg!\n", maxDroneCapacity);
+            }
+        } while ((pkgs + i)->weight <= 0 || (pkgs + i)->weight > maxDroneCapacity);
+
+        do {
+            printf("  Priority (1 = High, 2 = Medium, 3 = Low): ");
+            scanf("%d", &(pkgs + i)->priority);
+            if ((pkgs + i)->priority < 1 || (pkgs + i)->priority > 3) {
+                printf("  [Error] Priority must be 1, 2, or 3!\n");
+            }
+        } while ((pkgs + i)->priority < 1 || (pkgs + i)->priority > 3);
+    }
+}
+
+// Algorithm to select the best next package based on Priority first, then Nearest Distance (CO1 & CO2)
+int findNextPackage(Package *pkgs, float coords[][2], int n, float currentX, float currentY, float remainingCapacity) {
+    int bestIndex = -1;
+    int highestPriority = 4; // Lower number means higher priority (1 is highest)
+    double minDistance = 1e9;
+
+    for (int i = 0; i < n; i++) {
+        // Check if package is undelivered and fits within remaining payload capacity
+        if (!(pkgs + i)->delivered && (pkgs + i)->weight <= remainingCapacity) {
+            double dist = calculateDistance(currentX, currentY, coords[i][0], coords[i][1]);
+
+            // Prioritize higher priority packages; break ties using shortest distance
+            if ((pkgs + i)->priority < highestPriority || 
+               ((pkgs + i)->priority == highestPriority && dist < minDistance)) {
+                highestPriority = (pkgs + i)->priority;
+                minDistance = dist;
+                bestIndex = i;
+            }
+        }
+    }
+    return bestIndex;
+}
+
+// Function to simulate multi-trip drone delivery and generate reports (CO2 & CO5)
+void simulateDelivery(Package *pkgs, float coords[][2], int n, float maxCapacity) {
+    int deliveredCount = 0;
+    int tripNumber = 1;
+    double totalDistanceAllTrips = 0.0;
+    double totalFlightTimeHours = 0.0;
+    double totalFuelConsumed = 0.0;
+
+    printf("\n====================================================\n");
+    printf("            DRONE DELIVERY SIMULATION LOG           \n");
+    printf("====================================================\n");
+
+    while (deliveredCount < n) {
+        float currentX = 0.0, currentY = 0.0; // Base station at (0, 0)
+        float currentLoad = 0.0;
+        double tripDistance = 0.0;
+        double tripFuel = 0.0;
+
+        printf("\n--- Trip #%d (Departing Base [0.0, 0.0]) ---\n", tripNumber);
+
+        // Greedily load and deliver packages along the route while capacity allows
+        while (1) {
+            float remainingCap = maxCapacity - currentLoad;
+            int nextPkgIdx = findNextPackage(pkgs, coords, n, currentX, currentY, remainingCap);
+
+            if (nextPkgIdx == -1) {
+                // No more packages can fit in this trip
+                break;
+            }
+
+            Package *p = (pkgs + nextPkgIdx);
+            float targetX = coords[nextPkgIdx][0];
+            float targetY = coords[nextPkgIdx][1];
+
+            double legDistance = calculateDistance(currentX, currentY, targetX, targetY);
+            double legFuel = legDistance * (FUEL_RATE_PER_KM + (p->weight * WEIGHT_PENALTY_FACTOR));
+
+            // Update states
+            tripDistance += legDistance;
+            tripFuel += legFuel;
+            currentLoad += p->weight;
+            currentX = targetX;
+            currentY = targetY;
+            p->delivered = 1;
+            deliveredCount++;
+
+            printf("  -> Delivered Package #%d | Dest: (%.2f, %.2f) | Weight: %.2f kg | Priority: %d | Leg Dist: %.2f km\n",
+                   p->id, targetX, targetY, p->weight, p->priority, legDistance);
+        }
+
+        // Return to Base Station (0, 0)
+        double returnDistance = calculateDistance(currentX, currentY, 0.0, 0.0);
+        double returnFuel = returnDistance * FUEL_RATE_PER_KM;
+        tripDistance += returnDistance;
+        tripFuel += returnFuel;
+
+        double tripTimeMinutes = (tripDistance / DRONE_SPEED_KMH) * 60.0;
+
+        printf("  <- Returning to Base (0.0, 0.0) | Return Dist: %.2f km\n", returnDistance);
+        printf("  [Trip #%d Summary] Payload: %.2f/%.2f kg | Distance: %.2f km | Time: %.1f mins | Battery Used: %.2f%%\n",
+               tripNumber, currentLoad, maxCapacity, tripDistance, tripTimeMinutes, tripFuel);
+
+        totalDistanceAllTrips += tripDistance;
+        totalFlightTimeHours += (tripDistance / DRONE_SPEED_KMH);
+        totalFuelConsumed += tripFuel;
+        tripNumber++;
+    }
+
+    // Final Flight & Fuel Estimation Report
+    printf("\n====================================================\n");
+    printf("         FINAL FLIGHT & FUEL ESTIMATION REPORT      \n");
+    printf("====================================================\n");
+    printf("Total Packages Delivered : %d\n", deliveredCount);
+    printf("Total Trips Completed    : %d\n", tripNumber - 1);
+    printf("Total Distance Traveled  : %.2f km\n", totalDistanceAllTrips);
+    printf("Estimated Flight Time    : %.2f hours (%.1f minutes)\n", 
+           totalFlightTimeHours, totalFlightTimeHours * 60.0);
+    printf("Total Fuel/Battery Used  : %.2f%% (across all trips)\n", totalFuelConsumed);
+    printf("Average Speed Assumed    : %.1f km/h\n", DRONE_SPEED_KMH);
+    printf("====================================================\n");
+}
